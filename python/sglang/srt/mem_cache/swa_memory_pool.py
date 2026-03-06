@@ -361,7 +361,9 @@ class SWATokenToKVPoolAllocator(BaseTokenToKVPoolAllocator):
         assert alloc_swa_indices is not None
 
         if _is_npu:
-            self.full_to_swa_index_mapping[alloc_full_indices.to(torch.int64)] = alloc_swa_indices.to(torch.int64)
+            self.full_to_swa_index_mapping[alloc_full_indices.to(torch.int64)] = (
+                alloc_swa_indices.to(torch.int64)
+            )
         else:
             self.full_to_swa_index_mapping[alloc_full_indices] = alloc_swa_indices
         return alloc_full_indices
@@ -404,7 +406,9 @@ class SWATokenToKVPoolAllocator(BaseTokenToKVPoolAllocator):
         assert alloc_swa_indices is not None
 
         if _is_npu:
-            self.full_to_swa_index_mapping[alloc_full_indices.to(torch.int64)] = alloc_swa_indices.to(torch.int64)
+            self.full_to_swa_index_mapping[alloc_full_indices.to(torch.int64)] = (
+                alloc_swa_indices.to(torch.int64)
+            )
         else:
             self.full_to_swa_index_mapping[alloc_full_indices] = alloc_swa_indices
 
@@ -430,7 +434,9 @@ class SWATokenToKVPoolAllocator(BaseTokenToKVPoolAllocator):
             return None
 
         if _is_npu:
-            self.full_to_swa_index_mapping[alloc_full_indices.to(torch.int64)] = alloc_swa_indices.to(torch.int64)
+            self.full_to_swa_index_mapping[alloc_full_indices.to(torch.int64)] = (
+                alloc_swa_indices.to(torch.int64)
+            )
         else:
             self.full_to_swa_index_mapping[alloc_full_indices] = alloc_swa_indices
 

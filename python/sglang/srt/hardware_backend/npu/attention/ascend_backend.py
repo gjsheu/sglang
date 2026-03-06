@@ -282,12 +282,17 @@ class AscendAttnBackend(AttentionBackend):
         )
         if self.is_hybrid_swa:
             self.forward_metadata.block_tables_swa = (
-                self.full_to_swa_index_mapping[
-                    forward_batch.req_to_token_pool.req_to_token[
-                        forward_batch.req_pool_indices, :seq_lens_max
-                    ]
-                ][:, :: self.page_size] // self.page_size
-            ).to(torch.int32).contiguous()
+                (
+                    self.full_to_swa_index_mapping[
+                        forward_batch.req_to_token_pool.req_to_token[
+                            forward_batch.req_pool_indices, :seq_lens_max
+                        ]
+                    ][:, :: self.page_size]
+                    // self.page_size 
+                )
+                .to(torch.int32)
+                .contiguous()
+            )
         if forward_batch.extend_seq_lens is not None:
             self.forward_metadata.extend_seq_lens = forward_batch.extend_seq_lens
             self.forward_metadata.extend_seq_lens_cpu_int = (
@@ -416,10 +421,11 @@ class AscendAttnBackend(AttentionBackend):
             max_len += self.speculative_num_draft_tokens
         max_seq_pages = (max_len + self.page_size - 1) // self.page_size
 
-
         if self.is_hybrid_swa:
             metadata.block_tables_swa[:bs, :max_seq_pages].copy_(
-                self.full_to_swa_index_mapping[self.req_to_token[req_pool_indices[:bs], :max_len]][:, :: self.page_size]
+                self.full_to_swa_index_mapping[
+                    self.req_to_token[req_pool_indices[:bs], :max_len]
+                ][:, :: self.page_size]
                 // self.page_size
             )
             metadata.block_tables_swa[:bs, max_seq_pages:].fill_(0)
