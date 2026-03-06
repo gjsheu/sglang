@@ -12,7 +12,6 @@ from sglang.srt.mem_cache.allocator import (
 )
 from sglang.srt.mem_cache.memory_pool import KVCache, MHATokenToKVPool
 from sglang.srt.mem_cache.utils import maybe_init_custom_mem_pool
-
 from sglang.srt.utils import is_npu
 
 _is_npu = is_npu()
