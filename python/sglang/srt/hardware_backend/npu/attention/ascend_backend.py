@@ -288,7 +288,7 @@ class AscendAttnBackend(AttentionBackend):
                             forward_batch.req_pool_indices, :seq_lens_max
                         ]
                     ][:, :: self.page_size]
-                    // self.page_size 
+                    // self.page_size
                 )
                 .to(torch.int32)
                 .contiguous()
