@@ -404,6 +404,7 @@ class ModelRunnerKVCacheMixin:
                 from sglang.srt.hardware_backend.npu.memory_pool_npu import (
                     NPUMHATokenToKVPool,
                 )
+
                 kwargs = {}
                 if self.is_hybrid_swa_compress:
                     kwargs = {
