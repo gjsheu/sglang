@@ -408,9 +408,10 @@ def fuse_scale_shift_gate_select01_kernel(
 
 
 if current_platform.is_npu():
-    from .npu_fallback import fuse_scale_shift_native
+    from sgl_kernel_npu.norm.scale_shift import fused_scale_shift
 
-    fuse_scale_shift_kernel = fuse_scale_shift_native
+    fuse_scale_shift_kernel = fused_scale_shift
+
 
 if current_platform.is_mps():
     from .mps_fallback import (
