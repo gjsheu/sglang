@@ -437,7 +437,7 @@ class _ScaleResidualNormScaleShift(CustomOp):
         normalized = self.norm(residual_output)
         modulated = fuse_scale_shift_kernel(normalized, scale, shift)
         return modulated, residual_output
-    
+
     def forward_npu(
         self,
         residual: torch.Tensor,
@@ -467,10 +467,13 @@ class _ScaleResidualNormScaleShift(CustomOp):
         normalized = self.norm(residual_output)
         B, L, C = normalized.shape[0], normalized.shape[1], normalized.shape[2]
         block_l, block_c = 128, 128
+        # Ensure total blocks stay within NPU hardware grid limits
         if B * L * C / block_l / block_c < 65535:
             from sgl_kernel_npu.norm.scale_shift import fused_scale_shift
 
-            modulated = fused_scale_shift(normalized, scale, shift, block_l=block_l, block_c=block_c)
+            modulated = fused_scale_shift(
+                normalized, scale, shift, block_l=block_l, block_c=block_c
+            )
         else:
             modulated = fuse_scale_shift_kernel(normalized, scale, shift)
         return modulated, residual_output
@@ -562,13 +565,17 @@ class _NormScaleShift(CustomOp):
         normalized = self.norm(x)
         B, L, C = normalized.shape[0], normalized.shape[1], normalized.shape[2]
         block_l, block_c = 128, 128
+        # Ensure total blocks stay within NPU hardware grid limits
         if B * L * C / block_l / block_c < 65535:
             from sgl_kernel_npu.norm.scale_shift import fused_scale_shift
 
-            modulated = fused_scale_shift(normalized, scale, shift, block_l=block_l, block_c=block_c)
+            modulated = fused_scale_shift(
+                normalized, scale, shift, block_l=block_l, block_c=block_c
+            )
         else:
             modulated = fuse_scale_shift_kernel(normalized, scale, shift)
         return modulated.to(x.dtype)
+
 
 class LayerNormScaleShift(_NormScaleShift):
     norm_type = "layer"
