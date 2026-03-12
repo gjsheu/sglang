@@ -37,6 +37,11 @@ class MulAdd(CustomOp):
     def forward_npu(
         self, a: torch.Tensor, b: torch.Tensor, c: torch.Tensor, k: int = 0
     ):
-        from sgl_kernel_npu.norm.scale_shift import fused_scale_shift
+        block_l, block_c = 128, 64
+        B, L, C = a.shape[0], a.shape[1], a.shape[2]
+        if B * L * C / block_l / block_c < 65535:
+            from sgl_kernel_npu.norm.scale_shift import fused_scale_shift
 
-        return fused_scale_shift(a, b, c, scale_constant=k, block_l=128, block_c=64)
+            return fused_scale_shift(a, b, c, scale_constant=k, block_l=block_l, block_c=block_c)
+        else:
+            return self.forward_native(a, b, c, k)
