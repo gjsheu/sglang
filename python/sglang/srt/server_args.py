@@ -1386,7 +1386,7 @@ class ServerArgs:
 
         return capture_sizes
 
-    def _set_default_nsa_kv_cache_dtype(self, major: int) -> str:
+    def _set_default_nsa_kv_cache_dtype(self, major: int, quantization: str) -> str:
         user_set_prefill = self.nsa_prefill_backend is not None
         user_set_decode = self.nsa_decode_backend is not None
 
@@ -1400,9 +1400,15 @@ class ServerArgs:
             )
 
         if self.kv_cache_dtype == "auto":
-            self.kv_cache_dtype = (
-                "fp8_e4m3" if (major >= 10 and self.dp_size > 1) else "bfloat16"
-            )
+            # TODO: Temporarily set default dtype on B200 as bfloat16 to avoid performance regression.
+            # TODO: Remove this after the performance regression is fixed. (Ref: https://github.com/sgl-project/sglang/issues/21291)
+            if quantization == "modelopt_fp4" and major >= 10 and self.dp_size > 1:
+                self.kv_cache_dtype = "fp8_e4m3"
+            else:
+                self.kv_cache_dtype = "bfloat16"
+            # self.kv_cache_dtype = (
+            #     "fp8_e4m3" if (major >= 10 and self.dp_size > 1) else "bfloat16"
+            # )
             logger.warning(
                 f"Setting KV cache dtype to {self.kv_cache_dtype} for DeepSeek DSA on SM{major} device."
             )
@@ -1530,7 +1536,7 @@ class ServerArgs:
                         assert (
                             self.tp_size == 8
                         ), "Current multi-machine CP support suffers from precision issues. So context parallel only support Single machine(tp_size == 8)"
-                        self.attn_cp_size = self.tp_size
+                        self.attn_cp_size = self.tp_size // self.dp_size
 
                         logger.warning(
                             f"Enable Context Parallel opt for deeeseekv3.2-DSA, Setting dp_size == {self.dp_size} and moe_dense_tp_size == {self.moe_dense_tp_size}, ep_size == {self.ep_size}, tp_size == {self.tp_size}, kv_cache_dtype == {self.kv_cache_dtype}, moe_a2a_backend {self.moe_a2a_backend} "
@@ -1556,7 +1562,7 @@ class ServerArgs:
                     import torch
 
                     major, _ = torch.cuda.get_device_capability()
-                    self._set_default_nsa_kv_cache_dtype(major)
+                    self._set_default_nsa_kv_cache_dtype(major, self.quantization)
                     self._set_default_nsa_backends(self.kv_cache_dtype, major)
 
                 if self.enable_nsa_prefill_context_parallel:
@@ -3228,9 +3234,15 @@ class ServerArgs:
         if len(devices) == 0:
             raise ValueError("No valid IB devices specified")
 
-        # Check for duplicates
-        if len(devices) != len(set(devices)):
-            raise ValueError(f"Duplicate IB devices specified: {device_str}")
+        # Deduplicate while preserving order
+        unique_devices = list(dict.fromkeys(devices))
+        if len(unique_devices) != len(devices):
+            logger.warning(
+                "Duplicate IB devices specified: %s. Deduplicating to: %s",
+                device_str,
+                ",".join(unique_devices),
+            )
+            devices = unique_devices
 
         # Get available IB devices from sysfs
         ib_sysfs_path = "/sys/class/infiniband"
