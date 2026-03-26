@@ -435,45 +435,45 @@ class _ScaleResidualNormScaleShift(CustomOp):
         modulated = fuse_scale_shift_kernel(normalized, scale, shift)
         return modulated, residual_output
 
-    # def forward_npu(
-    #     self,
-    #     residual: torch.Tensor,
-    #     x: torch.Tensor,
-    #     gate: torch.Tensor | int,
-    #     shift: torch.Tensor,
-    #     scale: torch.Tensor,
-    # ) -> tuple[torch.Tensor, torch.Tensor]:
-    #     # x.shape: [batch_size, seq_len, inner_dim]
-    #     if isinstance(gate, int):
-    #         # used by cross-attention, should be 1
-    #         assert gate == 1
-    #         residual_output = residual + x
-    #     elif isinstance(gate, torch.Tensor):
-    #         if gate.dim() == 4:
-    #             # gate.shape: [batch_size, num_frames, 1, inner_dim]
-    #             num_frames = gate.shape[1]
-    #             frame_seqlen = x.shape[1] // num_frames
-    #             residual_output = residual + (
-    #                 x.unflatten(dim=1, sizes=(num_frames, frame_seqlen)) * gate
-    #             ).flatten(1, 2)
-    #         else:
-    #             # gate.shape: [batch_size, 1, inner_dim]
-    #             residual_output = residual + x * gate
-    #     else:
-    #         raise ValueError(f"Gate type {type(gate)} not supported")
-    #     normalized = self.norm(residual_output)
-    #     B, L, C = normalized.shape[0], normalized.shape[1], normalized.shape[2]
-    #     block_l, block_c = 128, 128
-    #     # Ensure total blocks stay within NPU hardware grid limits
-    #     if B * L * C / block_l / block_c < 65535:
-    #         from sgl_kernel_npu.norm.scale_shift import fused_scale_shift
+    def forward_npu(
+        self,
+        residual: torch.Tensor,
+        x: torch.Tensor,
+        gate: torch.Tensor | int,
+        shift: torch.Tensor,
+        scale: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        # x.shape: [batch_size, seq_len, inner_dim]
+        if isinstance(gate, int):
+            # used by cross-attention, should be 1
+            assert gate == 1
+            residual_output = residual + x
+        elif isinstance(gate, torch.Tensor):
+            if gate.dim() == 4:
+                # gate.shape: [batch_size, num_frames, 1, inner_dim]
+                num_frames = gate.shape[1]
+                frame_seqlen = x.shape[1] // num_frames
+                residual_output = residual + (
+                    x.unflatten(dim=1, sizes=(num_frames, frame_seqlen)) * gate
+                ).flatten(1, 2)
+            else:
+                # gate.shape: [batch_size, 1, inner_dim]
+                residual_output = residual + x * gate
+        else:
+            raise ValueError(f"Gate type {type(gate)} not supported")
+        normalized = self.norm(residual_output)
+        B, L, C = normalized.shape[0], normalized.shape[1], normalized.shape[2]
+        block_l, block_c = 128, 128
+        # Ensure total blocks stay within NPU hardware grid limits
+        if B * L * C / block_l / block_c < 65535:
+            from sgl_kernel_npu.norm.scale_shift import fused_scale_shift
 
-    #         modulated = fused_scale_shift(
-    #             normalized, scale, shift, block_l=block_l, block_c=block_c
-    #         )
-    #     else:
-    #         modulated = fuse_scale_shift_kernel(normalized, scale, shift)
-    #     return modulated, residual_output
+            modulated = fused_scale_shift(
+                normalized, scale, shift, block_l=block_l, block_c=block_c
+            )
+        else:
+            modulated = fuse_scale_shift_kernel(normalized, scale, shift)
+        return modulated, residual_output
 
 
 class ScaleResidualLayerNormScaleShift(_ScaleResidualNormScaleShift):
@@ -556,22 +556,22 @@ class _NormScaleShift(CustomOp):
         modulated = fuse_scale_shift_kernel(normalized, scale, shift)
         return modulated.to(x.dtype)
 
-    # def forward_npu(
-    #     self, x: torch.Tensor, shift: torch.Tensor, scale: torch.Tensor
-    # ) -> torch.Tensor:
-    #     normalized = self.norm(x)
-    #     B, L, C = normalized.shape[0], normalized.shape[1], normalized.shape[2]
-    #     block_l, block_c = 128, 128
-    #     # Ensure total blocks stay within NPU hardware grid limits
-    #     if B * L * C / block_l / block_c < 65535:
-    #         from sgl_kernel_npu.norm.scale_shift import fused_scale_shift
+    def forward_npu(
+        self, x: torch.Tensor, shift: torch.Tensor, scale: torch.Tensor
+    ) -> torch.Tensor:
+        normalized = self.norm(x)
+        B, L, C = normalized.shape[0], normalized.shape[1], normalized.shape[2]
+        block_l, block_c = 128, 128
+        # Ensure total blocks stay within NPU hardware grid limits
+        if B * L * C / block_l / block_c < 65535:
+            from sgl_kernel_npu.norm.scale_shift import fused_scale_shift
 
-    #         modulated = fused_scale_shift(
-    #             normalized, scale, shift, block_l=block_l, block_c=block_c
-    #         )
-    #     else:
-    #         modulated = fuse_scale_shift_kernel(normalized, scale, shift)
-    #     return modulated.to(x.dtype)
+            modulated = fused_scale_shift(
+                normalized, scale, shift, block_l=block_l, block_c=block_c
+            )
+        else:
+            modulated = fuse_scale_shift_kernel(normalized, scale, shift)
+        return modulated.to(x.dtype)
 
 
 class LayerNormScaleShift(_NormScaleShift):
