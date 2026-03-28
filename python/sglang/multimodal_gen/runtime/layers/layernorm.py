@@ -464,8 +464,10 @@ class _ScaleResidualNormScaleShift(CustomOp):
         normalized = self.norm(residual_output)
         B, L, C = normalized.shape[0], normalized.shape[1], normalized.shape[2]
         block_l, block_c = 128, 128
-        # Ensure total blocks stay within NPU hardware grid limits
-        if B * L * C / block_l / block_c < 65535:
+        num_blocks = B * L * C / block_l / block_c        
+        # num_blocks cannot exceed the NPU grid limit
+        # performance is lower than native when num_blocks is below 2000
+        if num_blocks < 65535 and num_blocks > 2000:
             from sgl_kernel_npu.norm.scale_shift import fused_scale_shift
 
             modulated = fused_scale_shift(
@@ -562,8 +564,10 @@ class _NormScaleShift(CustomOp):
         normalized = self.norm(x)
         B, L, C = normalized.shape[0], normalized.shape[1], normalized.shape[2]
         block_l, block_c = 128, 128
-        # Ensure total blocks stay within NPU hardware grid limits
-        if B * L * C / block_l / block_c < 65535:
+        num_blocks = B * L * C / block_l / block_c        
+        # num_blocks cannot exceed the NPU grid limit
+        # performance is lower than native when num_blocks is below 2000
+        if num_blocks < 65535 and num_blocks > 2000:
             from sgl_kernel_npu.norm.scale_shift import fused_scale_shift
 
             modulated = fused_scale_shift(
