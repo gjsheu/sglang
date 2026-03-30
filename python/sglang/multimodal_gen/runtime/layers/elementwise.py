@@ -40,7 +40,7 @@ class MulAdd(CustomOp):
         block_l, block_c = 128, 64
         B, L, C = a.shape[0], a.shape[1], a.shape[2]
 
-        num_blocks = B * L * C / block_l / block_c        
+        num_blocks = B * L * C / block_l / block_c
         # num_blocks cannot exceed the NPU grid limit
         # performance is lower than native when num_blocks is below 2000
         if num_blocks < 65535 and num_blocks > 2000:
