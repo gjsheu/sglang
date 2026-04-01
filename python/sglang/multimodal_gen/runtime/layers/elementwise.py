@@ -43,7 +43,7 @@ class MulAdd(CustomOp):
         num_blocks = B * L * C / block_l / block_c
         # num_blocks cannot exceed the NPU grid limit
         # performance is lower than native when num_blocks is below 2000
-        if num_blocks < 65535 and num_blocks > 2000:
+        if num_blocks < 65535:
             from sgl_kernel_npu.norm.scale_shift import fused_scale_shift
 
             return fused_scale_shift(
