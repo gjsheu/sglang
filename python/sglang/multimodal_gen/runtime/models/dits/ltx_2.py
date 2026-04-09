@@ -34,6 +34,10 @@ from sglang.multimodal_gen.runtime.models.dits.base import CachableDiT
 from sglang.multimodal_gen.runtime.platforms import AttentionBackendEnum
 from sglang.multimodal_gen.runtime.utils.layerwise_offload import OffloadableDiTMixin
 from sglang.multimodal_gen.runtime.utils.logging_utils import init_logger
+from sglang.multimodal_gen.runtime.layers.layernorm import RMSNorm
+from sglang.multimodal_gen.runtime.platforms import current_platform
+
+_is_npu = current_platform.is_npu()
 
 logger = init_logger(__name__)
 
@@ -320,7 +324,12 @@ class LTX2AudioVideoRotaryPosEmbed(nn.Module):
 
 
 def rms_norm(x: torch.Tensor, eps: float) -> torch.Tensor:
-    return F.rms_norm(x, normalized_shape=(x.shape[-1],), eps=eps)
+    if _is_npu:
+        from sgl_kernel_npu.norm.rmsnorm_without_weight import fused_rmsnorm_without_weight
+
+        return fused_rmsnorm_without_weight(x, eps)
+    else:
+        return F.rms_norm(x, normalized_shape=(x.shape[-1],), eps=eps)
 
 
 class LTX2TextProjection(nn.Module):
@@ -525,8 +534,8 @@ class LTX2Attention(nn.Module):
         self.k_norm: nn.Module | None = None
         if self.qk_norm:
             if tp_size == 1:
-                self.q_norm = torch.nn.RMSNorm(self.inner_dim, eps=self.norm_eps)
-                self.k_norm = torch.nn.RMSNorm(self.inner_dim, eps=self.norm_eps)
+                self.q_norm = RMSNorm(self.inner_dim, eps=self.norm_eps)
+                self.k_norm = RMSNorm(self.inner_dim, eps=self.norm_eps)
             else:
                 self.q_norm = LTX2TPRMSNormAcrossHeads(
                     full_hidden_size=self.inner_dim,
@@ -1574,6 +1583,10 @@ class LTX2VideoTransformer3DModel(CachableDiT, OffloadableDiTMixin):
             audio_encoder_hidden_states = self.audio_caption_projection(
                 audio_encoder_hidden_states
             )
+
+        if torch.all(encoder_attention_mask == 1):
+            encoder_attention_mask = None
+
         # 5. Run blocks
         skip_video_self_attn_blocks = set(skip_video_self_attn_blocks or ())
         skip_audio_self_attn_blocks = set(skip_audio_self_attn_blocks or ())
