@@ -1588,7 +1588,7 @@ class LTX2VideoTransformer3DModel(CachableDiT, OffloadableDiTMixin):
                 audio_encoder_hidden_states
             )
 
-        if torch.all(encoder_attention_mask == 1):
+        if encoder_attention_mask is not None and torch.all(encoder_attention_mask == 1):
             encoder_attention_mask = None
 
         # 5. Run blocks
