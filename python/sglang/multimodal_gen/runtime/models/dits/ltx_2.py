@@ -30,12 +30,14 @@ from sglang.multimodal_gen.runtime.layers.quantization.configs.base_config impor
     QuantizationConfig,
 )
 from sglang.multimodal_gen.runtime.layers.visual_embedding import timestep_embedding
+from sglang.multimodal_gen.runtime.layers.layernorm import RMSNorm
 from sglang.multimodal_gen.runtime.models.dits.base import CachableDiT
-from sglang.multimodal_gen.runtime.platforms import AttentionBackendEnum
+from sglang.multimodal_gen.runtime.platforms import (
+    AttentionBackendEnum,
+    current_platform,
+)
 from sglang.multimodal_gen.runtime.utils.layerwise_offload import OffloadableDiTMixin
 from sglang.multimodal_gen.runtime.utils.logging_utils import init_logger
-from sglang.multimodal_gen.runtime.layers.layernorm import RMSNorm
-from sglang.multimodal_gen.runtime.platforms import current_platform
 
 _is_npu = current_platform.is_npu()
 
@@ -325,7 +327,9 @@ class LTX2AudioVideoRotaryPosEmbed(nn.Module):
 
 def rms_norm(x: torch.Tensor, eps: float) -> torch.Tensor:
     if _is_npu:
-        from sgl_kernel_npu.norm.rmsnorm_without_weight import fused_rmsnorm_without_weight
+        from sgl_kernel_npu.norm.rmsnorm_without_weight import (
+            fused_rmsnorm_without_weight,
+        )
 
         return fused_rmsnorm_without_weight(x, eps)
     else:
