@@ -29,8 +29,7 @@ from sglang.srt.speculative.dflash_utils import (
 )
 from sglang.srt.speculative.spec_info import SpeculativeAlgorithm
 from sglang.srt.speculative.spec_utils import assign_req_to_token_pool_func
-from sglang.srt.utils import is_cuda
-from sglang.srt.utils import is_npu
+from sglang.srt.utils import is_cuda, is_npu
 
 _is_npu = is_npu()
 
