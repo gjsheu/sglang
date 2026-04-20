@@ -1749,8 +1749,8 @@ class LTX2VideoTransformer3DModel(CachableDiT, OffloadableDiTMixin):
         # 5. Run blocks
         skip_video_self_attn_blocks = set(skip_video_self_attn_blocks or ())
         skip_audio_self_attn_blocks = set(skip_audio_self_attn_blocks or ())
-        block_idx = getattr(block, "idx", -1)
         for block in self.transformer_blocks:
+            block_idx = getattr(block, "idx", -1)
             video_self_attn_perturbation_mask = None
             audio_self_attn_perturbation_mask = None
             a2v_cross_attn_perturbation_mask = None
