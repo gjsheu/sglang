@@ -449,6 +449,7 @@ class _ScaleResidualNormScaleShift(CustomOp):
         scale: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         from sgl_kernel_npu.norm.scale_shift import fused_scale_shift
+
         # x.shape: [batch_size, seq_len, inner_dim]
         if isinstance(gate, int):
             # used by cross-attention, should be 1
@@ -556,6 +557,7 @@ class _NormScaleShift(CustomOp):
         self, x: torch.Tensor, shift: torch.Tensor, scale: torch.Tensor
     ) -> torch.Tensor:
         from sgl_kernel_npu.norm.scale_shift import fused_scale_shift
+
         normalized = self.norm(x)
         modulated = fused_scale_shift(normalized, scale, shift)
         return modulated.to(x.dtype)
@@ -858,6 +860,7 @@ def tensor_parallel_rms_norm(x: torch.Tensor, norm: "RMSNorm") -> torch.Tensor:
     x_fp32 = x.float()
     if _is_npu:
         from sgl_kernel_npu.norm.rmsnorm_split import fused_rsqrt_mul, fused_variance
+
         variance = fused_variance(x_fp32)
         variance = get_tp_group().all_reduce(
             variance, op=torch._C._distributed_c10d.ReduceOp.AVG
