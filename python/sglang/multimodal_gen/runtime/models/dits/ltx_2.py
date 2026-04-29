@@ -1588,10 +1588,15 @@ class LTX2VideoTransformer3DModel(CachableDiT, OffloadableDiTMixin):
                 audio_encoder_hidden_states
             )
 
-        if encoder_attention_mask is not None and torch.all(
-            encoder_attention_mask == 1
-        ):
-            encoder_attention_mask = None
+        if _is_npu:
+            # If the 'encoder_attention_mask' is provided and it is all ones,
+            # it can be set to 'None' to avoid the degradation of performance on the NPU side,
+            # where the mask, even though it has no affect, 
+            # can lead to the introduction of multiple small operators.
+            if encoder_attention_mask is not None and torch.all(
+                encoder_attention_mask == 1
+            ):
+                encoder_attention_mask = None
 
         # 5. Run blocks
         skip_video_self_attn_blocks = set(skip_video_self_attn_blocks or ())
