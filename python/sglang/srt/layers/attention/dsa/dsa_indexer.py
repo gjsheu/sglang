@@ -64,7 +64,7 @@ global _use_multi_stream
 _is_cuda = is_cuda()
 _is_hip = is_hip()
 _is_npu = is_npu()
-if not _is_hip:
+if not _is_hip and not _is_npu:
     # Preserve the original eager import behavior on non-ROCm platforms.
     from sglang.jit_kernel.dsa import pick_dsl_expand
 else:
