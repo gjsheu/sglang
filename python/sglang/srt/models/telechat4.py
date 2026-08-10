@@ -21,6 +21,7 @@ fused TileLang kernels (``mhc_pre`` / ``mhc_post``) for performance.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Iterable, List, Optional, Tuple
 
 import torch
@@ -100,6 +101,22 @@ def mhc_pre(
     n_splits_pre: int,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     if is_npu():
+        if _NPU_MHC_BACKEND == "triton":
+            from sglang.srt.layers.telechat4_mhc_triton import telechat4_mhc_pre
+
+            return telechat4_mhc_pre(
+                residual,
+                fn,
+                hc_scale,
+                hc_base,
+                rms_eps,
+                hc_pre_eps,
+                hc_sinkhorn_eps,
+                hc_post_mult_value,
+                sinkhorn_repeat,
+                split_k=n_splits_pre,
+            )
+
         hc_mult = residual.shape[1]
         if hc_sinkhorn_eps != hc_pre_eps:
             raise ValueError(
@@ -147,6 +164,11 @@ def mhc_post(
     comb_res_mix: torch.Tensor,
 ) -> torch.Tensor:
     if is_npu():
+        if _NPU_MHC_BACKEND == "triton":
+            from sglang.srt.layers.telechat4_mhc_triton import telechat4_mhc_post
+
+            return telechat4_mhc_post(x, residual, post_layer_mix, comb_res_mix)
+
         return torch.ops.npu.hc_post(
             x, residual, post_layer_mix.squeeze(-1), comb_res_mix
         )
@@ -155,6 +177,15 @@ def mhc_post(
 
 
 logger = logging.getLogger(__name__)
+
+_NPU_MHC_BACKEND = os.environ.get(
+    "SGLANG_TELECHAT4_MHC_BACKEND", "ascendc"
+).lower()
+if _NPU_MHC_BACKEND not in ("ascendc", "triton"):
+    raise ValueError(
+        "SGLANG_TELECHAT4_MHC_BACKEND must be 'ascendc' or 'triton', "
+        f"got {_NPU_MHC_BACKEND!r}"
+    )
 
 
 class mHCModule(nn.Module):
@@ -209,8 +240,13 @@ class mHCModule(nn.Module):
     @torch.no_grad()
     def finalize(self) -> None:
         """Build the fp32 op operands from the loaded parameters."""
+        fn_dtype = (
+            torch.bfloat16
+            if is_npu() and _NPU_MHC_BACKEND == "triton"
+            else torch.float32
+        )
         self.fn = self.mapping_proj.weight.detach().to(
-            torch.float32
+            fn_dtype
         ).contiguous()
         self.hc_scale = (
             torch.cat([self.alpha_pre, self.alpha_post, self.alpha_res])
