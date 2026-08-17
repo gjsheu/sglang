@@ -10,6 +10,7 @@ It follows the same HiCacheStorage contract and key layout strategy, while using
 
 from __future__ import annotations
 
+import ctypes
 import json
 import logging
 import time
@@ -397,7 +398,9 @@ class AscendMemcacheStore(HiCacheStorage):
     ) -> Tuple[List[str], int]:
         # A logical "page" may map to multiple physical objects in storage.
         # - INDEXER: one key per page
-        # - MAMBA  : one temporal key + N conv keys per page
+        # - MAMBA  : temporal/conv keys are split per layer. Keeping each storage
+        #            object layer-sized prevents MemFabric from issuing one large
+        #            SDMA transaction for the packed page-first UVA allocation.
         # key_multiplier records how many component keys are generated per page.
         name = transfer.name
         suffixes = []
@@ -407,10 +410,17 @@ class AscendMemcacheStore(HiCacheStorage):
             pools = getattr(self, "registered_pools", {})
             mamba_pool = pools.get(PoolName.MAMBA)
             conv_num = len(getattr(mamba_pool, "conv_buffer", None) or [])
+            layer_num = int(getattr(mamba_pool, "num_mamba_layers", 0))
+            has_temporal = bool(
+                getattr(mamba_pool, "temporal_state_elem_size", 0) > 0
+            )
             base_suffix = f"_{self.mha_suffix}"
-            suffixes = [f"{base_suffix}_temporal"] + [
-                f"{base_suffix}_conv_{i}" for i in range(conv_num)
-            ]
+            for layer_id in range(layer_num):
+                if has_temporal:
+                    suffixes.append(f"{base_suffix}_temporal_l{layer_id}")
+                suffixes.extend(
+                    f"{base_suffix}_conv_{i}_l{layer_id}" for i in range(conv_num)
+                )
         key_multiplier = len(suffixes)
         component_keys = [
             f"{page_key}{suffix}" for page_key in page_keys for suffix in suffixes
@@ -500,6 +510,14 @@ class AscendMemcacheStore(HiCacheStorage):
                 keys, transfer
             )
             key_strs = self._tag_keys(key_strs)
+            if not (
+                len(key_strs) == len(ptr_list) == len(element_size_list)
+            ):
+                raise ValueError(
+                    f"PoolTransfer '{transfer.name}' component metadata mismatch: "
+                    f"keys={len(key_strs)}, ptrs={len(ptr_list)}, "
+                    f"sizes={len(element_size_list)}."
+                )
 
             if is_set:
                 exist_result = self._batch_exist(key_strs)
@@ -507,7 +525,7 @@ class AscendMemcacheStore(HiCacheStorage):
                 missing_idx = [i for i, state in enumerate(exist_result) if state != 1]
                 if missing_idx:
                     start_time = time.perf_counter()
-                    put_results = self._put_batch_zero_copy_impl(
+                    put_results = self._put_host_objects_impl(
                         [key_strs[i] for i in missing_idx],
                         [ptr_list[i] for i in missing_idx],
                         [element_size_list[i] for i in missing_idx],
@@ -516,8 +534,10 @@ class AscendMemcacheStore(HiCacheStorage):
                         io_results[i] = res
             else:
                 start_time = time.perf_counter()
-                io_results = self._get_batch_zero_copy_impl(
-                    key_strs, ptr_list, element_size_list
+                io_results = self._get_host_objects_impl(
+                    key_strs,
+                    ptr_list,
+                    element_size_list,
                 )
             pool_results = self._batch_postprocess(
                 io_results, is_set_operate=is_set, key_multiplier=key_multiplier
@@ -625,8 +645,10 @@ class AscendMemcacheStore(HiCacheStorage):
         key_strs, buffer_ptrs, buffer_sizes = self._batch_preprocess(keys, host_indices)
 
         start_time = time.perf_counter()
-        get_results = self._get_batch_zero_copy_impl(
-            key_strs, buffer_ptrs, buffer_sizes
+        get_results = self._get_host_objects_impl(
+            key_strs,
+            buffer_ptrs,
+            buffer_sizes,
         )
         end_time = time.perf_counter()
 
@@ -669,8 +691,10 @@ class AscendMemcacheStore(HiCacheStorage):
 
         if set_keys:
             start_time = time.perf_counter()
-            put_results = self._put_batch_zero_copy_impl(
-                set_keys, set_buffer_ptrs, set_buffer_sizes
+            put_results = self._put_host_objects_impl(
+                set_keys,
+                set_buffer_ptrs,
+                set_buffer_sizes,
             )
             end_time = time.perf_counter()
             ok = sum(1 for r in put_results if r == 0)
@@ -863,6 +887,19 @@ class AscendMemcacheStore(HiCacheStorage):
     ) -> List[int]:
         return self.store.batch_put_from(key_strs, buffer_ptrs, buffer_sizes)
 
+    def _put_host_objects_impl(
+        self, key_strs: List[str], buffer_ptrs: List[int], buffer_sizes: List[int]
+    ) -> List[int]:
+        results: List[int] = []
+        for key, ptr, size in zip(key_strs, buffer_ptrs, buffer_sizes):
+            try:
+                payload = bytearray(ctypes.string_at(int(ptr), int(size)))
+                results.append(int(self.store.put(key, payload)))
+            except Exception:
+                logger.exception("Failed to put cache object %s via host copy", key)
+                results.append(-1)
+        return results
+
     def _get_batch_zero_copy_impl(
         self, key_strs: List[str], buffer_ptrs: List[int], buffer_sizes: List[int]
     ) -> List[int]:
@@ -876,6 +913,23 @@ class AscendMemcacheStore(HiCacheStorage):
                 out.append(int(sz))
             else:
                 out.append(-abs(code))
+        return out
+
+    def _get_host_objects_impl(
+        self, key_strs: List[str], buffer_ptrs: List[int], buffer_sizes: List[int]
+    ) -> List[int]:
+        out: List[int] = []
+        for key, ptr, size in zip(key_strs, buffer_ptrs, buffer_sizes):
+            try:
+                payload = self.store.get(key)
+                if payload is None or len(payload) != int(size):
+                    out.append(-1)
+                    continue
+                ctypes.memmove(int(ptr), bytes(payload), int(size))
+                out.append(int(size))
+            except Exception:
+                logger.exception("Failed to get cache object %s via host copy", key)
+                out.append(-1)
         return out
 
     def _batch_exist(self, key_strs: List[str]) -> List[int]:

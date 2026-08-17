@@ -657,17 +657,18 @@ class MambaPoolHost(HostKVCache):
         # Compute base pointers once; each page pointer is offset from these bases.
         temporal_base_ptr = self.temporal_buffer.data_ptr()
         conv_base_ptrs = [buf.data_ptr() for buf in self.conv_buffer]
-        # Component sizes are constant across pages, so precompute once as well.
-        temporal_element_size = (
+        # L3 storage objects are layer-sized. A full packed Mamba page can be
+        # tens of MiB and triggers an oversized UVA SDMA transaction on Ascend;
+        # emitting one pointer per layer keeps the logical page unchanged while
+        # bounding every MemFabric object transfer.
+        temporal_layer_size = (
             self.page_size
-            * self.num_mamba_layers
             * self.temporal_dtype.itemsize
             * self.temporal_state_elem_size
         )
-        conv_element_sizes = [
+        conv_layer_sizes = [
             (
                 self.page_size
-                * self.num_mamba_layers
                 * self.conv_dtype.itemsize
                 * self.conv_state_elem_sizes[i]
             )
@@ -675,30 +676,27 @@ class MambaPoolHost(HostKVCache):
         ]
 
         for i in range(0, len(indices), self.page_size):
-            # Emit component pointers in stable order: temporal first (dropped
-            # for conv-only models with no ssm state), then conv_0..conv_n.
-            # _get_hybrid_page_component_keys drops the temporal key under the
-            # same condition, keeping keys and buffers aligned.
-            if self.temporal_state_elem_size > 0:
-                temporal_ptr = (
-                    temporal_base_ptr
-                    + indices[i]
-                    * self.num_mamba_layers
-                    * self.temporal_state_elem_size
-                    * self.temporal_dtype.itemsize
-                )
-                ptr_list.append(temporal_ptr)
-                element_size_list.append(temporal_element_size)
-            for j in range(len(self.conv_buffer)):
-                conv_ptr = (
-                    conv_base_ptrs[j]
-                    + indices[i]
-                    * self.num_mamba_layers
-                    * self.conv_state_elem_sizes[j]
-                    * self.conv_dtype.itemsize
-                )
-                ptr_list.append(conv_ptr)
-                element_size_list.append(conv_element_sizes[j])
+            temporal_page_ptr = temporal_base_ptr + indices[i] * (
+                self.num_mamba_layers * temporal_layer_size
+            )
+            conv_page_ptrs = [
+                conv_base_ptrs[j]
+                + indices[i] * self.num_mamba_layers * conv_layer_sizes[j]
+                for j in range(len(self.conv_buffer))
+            ]
+            # Keep this order identical to AscendMemcacheStore's Mamba keys:
+            # temporal(layer_i), conv_0(layer_i), ..., then the next layer.
+            for layer_id in range(self.num_mamba_layers):
+                if self.temporal_state_elem_size > 0:
+                    ptr_list.append(
+                        temporal_page_ptr + layer_id * temporal_layer_size
+                    )
+                    element_size_list.append(temporal_layer_size)
+                for j, conv_page_ptr in enumerate(conv_page_ptrs):
+                    ptr_list.append(
+                        conv_page_ptr + layer_id * conv_layer_sizes[j]
+                    )
+                    element_size_list.append(conv_layer_sizes[j])
         return ptr_list, element_size_list
 
     def is_stride_page_aligned(self, page_size_bytes: int = 4096) -> bool:
