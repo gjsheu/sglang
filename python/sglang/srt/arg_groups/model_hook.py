@@ -326,6 +326,16 @@ def handle_model_specific_adjustments(server_args: Any):
                     "CP is only supported for prefill when PD disaggregation, please remove --enable-prefill-cp."
                 )
             if (
+                cfg.enable_prefill_cp
+                and get_platform().is_npu
+                and cfg.cp_strategy == "zigzag"
+            ):
+                raise ValueError(
+                    "GLM-5.2 / DeepSeek DSA prefill context parallelism on "
+                    "NPU supports the interleave strategy only (zigzag is not "
+                    "adapted). Use --cp-strategy interleave."
+                )
+            if (
                 cfg.enable_dsa_cache_layer_split
                 and cfg.disaggregation_mode != "prefill"
             ):
