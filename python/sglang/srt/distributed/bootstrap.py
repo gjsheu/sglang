@@ -99,8 +99,8 @@ def init_parallel_runtime(
     """Initialize the parallel runtime once, after publishing configuration.
 
     Set up CPU thread binding, the current device, and the shared Mooncake
-    engine before creating process groups. Draft workers reuse their target's
-    groups and must not call this function.
+    engine after process-group creation and communicator warmup. Draft workers
+    reuse their target's groups and must not call this function.
     """
     global _PARALLEL_INITIALISED
     if _PARALLEL_INITIALISED:
@@ -143,8 +143,6 @@ def init_parallel_runtime(
             get_parallel().tp_rank,
         )
         raise
-    maybe_init_shared_mooncake_transfer_engine(gpu_id=get_device().gpu_id)
-
     parallel = get_parallel()
     if device == "cpu":
         _init_cpu_threads_env(
@@ -165,6 +163,9 @@ def init_parallel_runtime(
         parallel.tp_size > 1 or parallel.pp_size > 1 or parallel.moe_ep_size > 1
     ):
         _prewarm_nccl()
+
+    # NPU requires an HCCL warmup before the transfer.
+    maybe_init_shared_mooncake_transfer_engine(gpu_id=get_device().gpu_id)
 
     # CUDA graph capture enables the PyNCCL communicator for TP LM-head
     # all-to-all. Exercise that exact send/recv path before measuring
